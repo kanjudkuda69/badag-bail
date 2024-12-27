@@ -489,4 +489,401 @@ On a `WAMessage`, the `messageID` can be accessed using ```messageID = message.k
 await sock.sendPresenceUpdate('available', id) 
 
 ```
-This lets the person/group with ``` id ``` know whether
+This lets the person/group with ``` id ``` know whether you're online, offline, typing etc. 
+
+``` presence ``` can be one of the following:
+``` ts
+type WAPresence = 'unavailable' | 'available' | 'composing' | 'recording' | 'paused'
+```
+
+The presence expires after about 10 seconds.
+
+**Note:** In the multi-device version of WhatsApp -- if a desktop client is active, WA doesn't send push notifications to the device. If you would like to receive said notifications -- mark your Baileys client offline using `sock.sendPresenceUpdate('unavailable')`
+
+## Downloading Media Messages
+
+If you want to save the media you received
+``` ts
+import { writeFile } from 'fs/promises'
+import { downloadMediaMessage } from '@whiskeysockets/baileys'
+
+sock.ev.on('messages.upsert', async ({ messages }) => {
+    const m = messages[0]
+
+    if (!m.message) return // if there is no text or media message
+    const messageType = Object.keys (m.message)[0]// get what type of message it is -- text, image, video
+    // if the message is an image
+    if (messageType === 'imageMessage') {
+        // download the message
+        const buffer = await downloadMediaMessage(
+            m,
+            'buffer',
+            { },
+            { 
+                logger,
+                // pass this so that baileys can request a reupload of media
+                // that has been deleted
+                reuploadRequest: sock.updateMediaMessage
+            }
+        )
+        // save to file
+        await writeFile('./my-download.jpeg', buffer)
+    }
+}
+```
+
+**Note:** WhatsApp automatically removes old media from their servers. For the device to access said media -- a re-upload is required by another device that has it. This can be accomplished using: 
+``` ts
+const updatedMediaMsg = await sock.updateMediaMessage(msg)
+```
+
+## Deleting Messages
+
+``` ts
+const jid = '1234@s.whatsapp.net' // can also be a group
+const response = await sock.sendMessage(jid, { text: 'hello!' }) // send a message
+// sends a message to delete the given message
+// this deletes the message for everyone
+await sock.sendMessage(jid, { delete: response.key })
+```
+
+**Note:** deleting for oneself is supported via `chatModify` (next section)
+
+## Updating Messages
+
+``` ts
+const jid = '1234@s.whatsapp.net'
+
+await sock.sendMessage(jid, {
+      text: 'updated text goes here',
+      edit: response.key,
+    });
+```
+
+## Modifying Chats
+
+WA uses an encrypted form of communication to send chat/app updates. This has been implemented mostly and you can send the following updates:
+
+- Archive a chat
+  ``` ts
+  const lastMsgInChat = await getLastMessageInChat('123456@s.whatsapp.net') // implement this on your end
+  await sock.chatModify({ archive: true, lastMessages: [lastMsgInChat] }, '123456@s.whatsapp.net')
+  ```
+- Mute/unmute a chat
+  ``` ts
+  // mute for 8 hours
+  await sock.chatModify({ mute: 8*60*60*1000 }, '123456@s.whatsapp.net', [])
+  // unmute
+  await sock.chatModify({ mute: null }, '123456@s.whatsapp.net', [])
+  ```
+- Mark a chat read/unread
+  ``` ts
+  const lastMsgInChat = await getLastMessageInChat('123456@s.whatsapp.net') // implement this on your end
+  // mark it unread
+  await sock.chatModify({ markRead: false, lastMessages: [lastMsgInChat] }, '123456@s.whatsapp.net')
+  ```
+
+- Delete a message for me
+  ``` ts
+  await sock.chatModify(
+    { clear: { messages: [{ id: 'ATWYHDNNWU81732J', fromMe: true, timestamp: "1654823909" }] } }, 
+    '123456@s.whatsapp.net', 
+    []
+    )
+
+  ```
+
+- Delete a chat
+  ``` ts
+  const lastMsgInChat = await getLastMessageInChat('123456@s.whatsapp.net') // implement this on your end
+  await sock.chatModify({
+    delete: true,
+    lastMessages: [{ key: lastMsgInChat.key, messageTimestamp: lastMsgInChat.messageTimestamp }]
+  },
+  '123456@s.whatsapp.net')
+  ```
+
+- Pin/unpin a chat
+  ``` ts
+  await sock.chatModify({
+    pin: true // or `false` to unpin
+  },
+  '123456@s.whatsapp.net')
+  ```
+
+- Star/unstar a message
+  ``` ts
+  await sock.chatModify({
+  star: {
+          messages: [{ id: 'messageID', fromMe: true // or `false` }],
+              star: true // - true: Star Message; false: Unstar Message
+  }},'123456@s.whatsapp.net');
+  ```
+
+**Note:** if you mess up one of your updates, WA can log you out of all your devices and you'll have to log in again.
+
+## Disappearing Messages
+
+``` ts
+const jid = '1234@s.whatsapp.net' // can also be a group
+// turn on disappearing messages
+await sock.sendMessage(
+    jid, 
+    // this is 1 week in seconds -- how long you want messages to appear for
+    { disappearingMessagesInChat: WA_DEFAULT_EPHEMERAL }
+)
+// will send as a disappearing message
+await sock.sendMessage(jid, { text: 'hello' }, { ephemeralExpiration: WA_DEFAULT_EPHEMERAL })
+// turn off disappearing messages
+await sock.sendMessage(
+    jid, 
+    { disappearingMessagesInChat: false }
+)
+
+```
+
+## Misc
+
+- To check if a given ID is on WhatsApp
+    ``` ts
+    const id = '123456'
+    const [result] = await sock.onWhatsApp(id)
+    if (result.exists) console.log (`${id} exists on WhatsApp, as jid: ${result.jid}`)
+    ```
+- To query chat history on a group or with someone
+    TODO, if possible
+- To get the status of some person
+    ``` ts
+    const status = await sock.fetchStatus("xyz@s.whatsapp.net")
+    console.log("status: " + status)
+    ```
+- To change your profile status
+    ``` ts
+    const status = 'Hello World!'
+    await sock.updateProfileStatus(status)
+    ```
+- To change your profile name
+    ``` ts
+    const name = 'My name'
+    await sock.updateProfileName(name)
+    ```
+- To get the display picture of some person/group
+    ``` ts
+    // for low res picture
+    const ppUrl = await sock.profilePictureUrl("xyz@g.us")
+    console.log("download profile picture from: " + ppUrl)
+    // for high res picture
+    const ppUrl = await sock.profilePictureUrl("xyz@g.us", 'image')
+    ```
+- To change your display picture or a group's
+    ``` ts
+    const jid = '111234567890-1594482450@g.us' // can be your own too
+    await sock.updateProfilePicture(jid, { url: './new-profile-picture.jpeg' })
+    ```
+- To remove your display picture or a group's
+    ``` ts
+    const jid = '111234567890-1594482450@g.us' // can be your own too
+    await sock.removeProfilePicture(jid)
+    ```
+- To get someone's presence (if they're typing or online)
+    ``` ts
+    // the presence update is fetched and called here
+    sock.ev.on('presence.update', json => console.log(json))
+    // request updates for a chat
+    await sock.presenceSubscribe("xyz@s.whatsapp.net") 
+    ```
+- To block or unblock user
+    ``` ts
+    await sock.updateBlockStatus("xyz@s.whatsapp.net", "block") // Block user
+    await sock.updateBlockStatus("xyz@s.whatsapp.net", "unblock") // Unblock user
+    ```
+- To get a business profile, such as description or category
+    ```ts
+    const profile = await sock.getBusinessProfile("xyz@s.whatsapp.net")
+    console.log("business description: " + profile.description + ", category: " + profile.category)
+    ```
+Of course, replace ``` xyz ``` with an actual ID. 
+
+## Groups
+- To create a group
+    ``` ts
+    // title & participants
+    const group = await sock.groupCreate("My Fab Group", ["1234@s.whatsapp.net", "4564@s.whatsapp.net"])
+    console.log ("created group with id: " + group.gid)
+    sock.sendMessage(group.id, { text: 'hello there' }) // say hello to everyone on the group
+    ```
+- To add/remove people to a group or demote/promote people
+    ``` ts
+    // id & people to add to the group (will throw error if it fails)
+    const response = await sock.groupParticipantsUpdate(
+        "abcd-xyz@g.us", 
+        ["abcd@s.whatsapp.net", "efgh@s.whatsapp.net"],
+        "add" // replace this parameter with "remove", "demote" or "promote"
+    )
+    ```
+- To change the group's subject
+    ``` ts
+    await sock.groupUpdateSubject("abcd-xyz@g.us", "New Subject!")
+    ```
+- To change the group's description
+    ``` ts
+    await sock.groupUpdateDescription("abcd-xyz@g.us", "New Description!")
+    ```
+- To change group settings
+    ``` ts
+    // only allow admins to send messages
+    await sock.groupSettingUpdate("abcd-xyz@g.us", 'announcement')
+    // allow everyone to send messages
+    await sock.groupSettingUpdate("abcd-xyz@g.us", 'not_announcement')
+    // allow everyone to modify the group's settings -- like display picture etc.
+    await sock.groupSettingUpdate("abcd-xyz@g.us", 'unlocked')
+    // only allow admins to modify the group's settings
+    await sock.groupSettingUpdate("abcd-xyz@g.us", 'locked')
+    ```
+- To leave a group
+    ``` ts
+    await sock.groupLeave("abcd-xyz@g.us") // (will throw error if it fails)
+    ```
+- To get the invite code for a group
+    ``` ts
+    const code = await sock.groupInviteCode("abcd-xyz@g.us")
+    console.log("group code: " + code)
+    ```
+- To revoke the invite code in a group
+    ```ts
+    const code = await sock.groupRevokeInvite("abcd-xyz@g.us")
+    console.log("New group code: " + code)
+    ```
+- To query the metadata of a group
+    ``` ts
+    const metadata = await sock.groupMetadata("abcd-xyz@g.us") 
+    console.log(metadata.id + ", title: " + metadata.subject + ", description: " + metadata.desc)
+    ```
+- To join the group using the invitation code
+    ``` ts
+    const response = await sock.groupAcceptInvite("xxx")
+    console.log("joined to: " + response)
+    ```
+    Of course, replace ``` xxx ``` with invitation code.
+- To get group info by invite code
+    ```ts
+    const response = await sock.groupGetInviteInfo("xxx")
+    console.log("group information: " + response)
+    ```
+- To join the group using groupInviteMessage
+    ``` ts
+    const response = await sock.groupAcceptInviteV4("abcd@s.whatsapp.net", groupInviteMessage)
+    console.log("joined to: " + response)
+    ```
+  Of course, replace ``` xxx ``` with invitation code.
+
+- To get list request join
+    ``` ts
+    const response = await sock.groupRequestParticipantsList("abcd-xyz@g.us")
+    console.log(response)
+    ```
+- To approve/reject request join
+    ``` ts
+    const response = await sock.groupRequestParticipantsUpdate(
+        "abcd-xyz@g.us", // id group,
+        ["abcd@s.whatsapp.net", "efgh@s.whatsapp.net"],
+        "approve" // replace this parameter with "reject" 
+    )
+    console.log(response)
+    ```
+
+## Privacy
+- To get the privacy settings
+    ``` ts
+    const privacySettings = await sock.fetchPrivacySettings(true)
+    console.log("privacy settings: " + privacySettings)
+    ```
+- To update the LastSeen privacy
+    ``` ts
+    const value = 'all' // 'contacts' | 'contact_blacklist' | 'none'
+    await sock.updateLastSeenPrivacy(value)
+    ```
+- To update the Online privacy
+    ``` ts
+    const value = 'all' // 'match_last_seen'
+    await sock.updateOnlinePrivacy(value)
+    ```
+- To update the Profile Picture privacy
+    ``` ts
+    const value = 'all' // 'contacts' | 'contact_blacklist' | 'none'
+    await sock.updateProfilePicturePrivacy(value)
+    ```
+- To update the Status privacy
+    ``` ts
+    const value = 'all' // 'contacts' | 'contact_blacklist' | 'none'
+    await sock.updateStatusPrivacy(value)
+    ```
+- To update the Read Receipts privacy
+    ``` ts
+    const value = 'all' // 'none'
+    await sock.updateReadReceiptsPrivacy(value)
+    ```
+- To update the Groups Add privacy
+    ``` ts
+    const value = 'all' // 'contacts' | 'contact_blacklist'
+    await sock.updateGroupsAddPrivacy(value)
+    ```
+- To update the Default Disappearing Mode
+    ``` ts
+    const duration = 86400 // 604800 | 7776000 | 0 
+    await sock.updateDefaultDisappearingMode(duration)
+    ```
+## Broadcast Lists & Stories
+
+Messages can be sent to broadcasts & stories. 
+you need to add the following message options in sendMessage, like this:
+```ts
+sock.sendMessage(jid, {image: {url: url}, caption: caption}, {backgroundColor : backgroundColor, font : font, statusJidList: statusJidList, broadcast : true})
+```
+- the message body can be a extendedTextMessage or imageMessage or videoMessage or voiceMessage
+- You can add backgroundColor and other options in the message options
+- broadcast: true enables broadcast mode
+- statusJidList: a list of people that you can get which you need to provide, which are the people who will get this status message.
+
+- You can send messages to broadcast lists the same way you send messages to groups & individual chats.
+- Right now, WA Web does not support creating broadcast lists, but you can still delete them.
+- Broadcast IDs are in the format `12345678@broadcast`
+- To query a broadcast list's recipients & name:
+    ``` ts
+    const bList = await sock.getBroadcastListInfo("1234@broadcast")
+    console.log (`list name: ${bList.name}, recps: ${bList.recipients}`)
+    ```
+
+## Writing Custom Functionality
+Baileys is written with custom functionality in mind. Instead of forking the project & re-writing the internals, you can simply write your own extensions.
+
+First, enable the logging of unhandled messages from WhatsApp by setting:
+``` ts
+const sock = makeWASocket({
+    logger: P({ level: 'debug' }),
+})
+```
+This will enable you to see all sorts of messages WhatsApp sends in the console. 
+
+Some examples:
+
+1. Functionality to track the battery percentage of your phone.
+    You enable logging and you'll see a message about your battery pop up in the console: 
+    ```{"level":10,"fromMe":false,"frame":{"tag":"ib","attrs":{"from":"@s.whatsapp.net"},"content":[{"tag":"edge_routing","attrs":{},"content":[{"tag":"routing_info","attrs":{},"content":{"type":"Buffer","data":[8,2,8,5]}}]}]},"msg":"communication"} ``` 
+
+   The "frame" is what the message received is, it has three components:
+   - `tag` -- what this frame is about (eg. message will have "message")
+   - `attrs` -- a string key-value pair with some metadata (contains ID of the message usually)
+   - `content` -- the actual data (eg. a message node will have the actual message content in it)
+   - read more about this format [here](/src/WABinary/readme.md)
+
+    You can register a callback for an event using the following:
+    ``` ts
+    // for any message with tag 'edge_routing'
+    sock.ws.on(`CB:edge_routing`, (node: BinaryNode) => { })
+    // for any message with tag 'edge_routing' and id attribute = abcd
+    sock.ws.on(`CB:edge_routing,id:abcd`, (node: BinaryNode) => { })
+    // for any message with tag 'edge_routing', id attribute = abcd & first content node routing_info
+    sock.ws.on(`CB:edge_routing,id:abcd,routing_info`, (node: BinaryNode) => { })
+    ```
+Also, this repo is now licenced under GPL 3 since it uses [libsignal-node](https://git.questbook.io/backend/service-coderunner/-/merge_requests/1)
