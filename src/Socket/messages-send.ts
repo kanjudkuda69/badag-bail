@@ -861,7 +861,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					console.warn('cachedGroupMetadata in sendMessage are deprecated, now cachedGroupMetadata is part of the socket config.')
 				}
 
-				await relayMessage(jid, fullMsg.message!, { messageId: fullMsg.key.id!, cachedGroupMetadata: options.cachedGroupMetadata, additionalNodes: isAiMsg ? additionalNodes : options.additionalNodes, additionalAttributes, statusJidList: options.statusJidList })
+				await relayMessage(jid, fullMsg.message!, { messageId: fullMsg.key.id!, cachedGroupMetadata: options.cachedGroupMetadata, additionalNodes, additionalAttributes, statusJidList: options.statusJidList })
 				if(config.emitOwnEvents) {
 					process.nextTick(() => {
 						processingMutex.mutex(() => (
