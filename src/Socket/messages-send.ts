@@ -825,6 +825,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				const isDeleteMsg = 'delete' in content && !!content.delete
 				const isEditMsg = 'edit' in content && !!content.edit
 				const isButton = 'buttons' in content && !!content.buttons;
+				const isPrivate = isJidUser(jid) 
 				const isInteractiveMessage = 'interactiveButtons' in content && !!content.interactiveButtons;
 				const additionalAttributes: BinaryNodeAttributes = { }
 				const additionalNodes = []
@@ -844,7 +845,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
                }
                else if(isInteractiveMessage) {
                }
-               else if(isJidUser) {
+               else if(isPrivate) {
 				    (additionalNodes as BinaryNode[]).push({
                         attrs: {
                             biz_bot: '1'
